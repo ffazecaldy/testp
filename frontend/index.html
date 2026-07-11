@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker</title>
+<!-- Chart.js via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: #f5f7fb; color: #1a1a2e; line-height: 1.6;
+    padding: 24px; max-width: 1100px; margin: 0 auto;
+  }
+  h1 { font-size: 1.8rem; margin-bottom: 8px; color: #16213e; }
+  h2 { font-size: 1.2rem; margin-bottom: 12px; color: #0f3460; }
+
+  /* ── Card ─────────────────────────────────────────────── */
+  .card {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06); margin-bottom: 20px;
+  }
+
+  /* ── API Key Bar ──────────────────────────────────────── */
+  #api-key-bar {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  #api-key-bar input { flex: 1; min-width: 200px; }
+  .api-ok { color: #2e7d32; font-weight: 600; }
+  .api-missing { color: #c62828; font-weight: 600; }
+
+  /* ── Form ─────────────────────────────────────────────── */
+  .form-row {
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: end;
+  }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: .85rem; color: #555; font-weight: 500; }
+  input, select {
+    padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px;
+    font-size: .95rem; background: #fff;
+  }
+  input:focus, select:focus { border-color: #0f3460; outline: none; box-shadow: 0 0 0 2px rgba(15,52,96,.15); }
+
+  /* ── Buttons ──────────────────────────────────────────── */
+  .btn {
+    padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer;
+    font-size: .9rem; font-weight: 500; transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: #0f3460; color: #fff; }
+  .btn-danger  { background: #c62828; color: #fff; }
+  .btn-edit    { background: #1565c0; color: #fff; padding: 4px 12px; font-size: .8rem; }
+  .btn-del     { background: #b71c1c; color: #fff; padding: 4px 12px; font-size: .8rem; }
+  .btn-save    { background: #2e7d32; color: #fff; }
+  .btn-cancel  { background: #757575; color: #fff; }
+
+  /* ── Table ────────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e0e0e0; }
+  th { background: #f0f2f6; font-weight: 600; color: #333; }
+  tr:hover td { background: #fafbfd; }
+  .actions { display: flex; gap: 6px; }
+
+  /* ── Filters ──────────────────────────────────────────── */
+  .filter-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .filter-bar select { min-width: 140px; }
+
+  /* ── Messages ─────────────────────────────────────────── */
+  .msg {
+    padding: 10px 16px; border-radius: 8px; margin-bottom: 12px;
+    font-size: .9rem; display: none;
+  }
+  .msg-error { background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; display: block; }
+  .msg-success { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; display: block; }
+
+  /* ── Chart ────────────────────────────────────────────── */
+  .chart-wrap { max-width: 400px; margin: 0 auto; }
+
+  /* ── Spinner ──────────────────────────────────────────── */
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #ddd; border-top-color: #0f3460; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Responsive ───────────────────────────────────────── */
+  @media (max-width: 600px) {
+    body { padding: 12px; }
+    .form-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<h1>🧾 Expense Tracker</h1>
+
+<!-- API Key -->
+<div class="card">
+  <div id="api-key-bar">
+    <label for="api-key-input">X-API-Key:</label>
+    <input type="password" id="api-key-input" placeholder="Inserisci API Key">
+    <button class="btn btn-primary" id="api-key-btn">Salva</button>
+    <span id="api-key-status" class="api-missing">⛔ Non configurata</span>
+  </div>
+</div>
+
+<!-- Messages -->
+<div id="msg-box" class="msg"></div>
+
+<!-- Add / Edit Form -->
+<div class="card" id="form-card">
+  <h2 id="form-title">➕ Nuova spesa</h2>
+  <form id="expense-form">
+    <div class="form-row">
+      <div class="form-group" style="flex:2">
+        <label for="descrizione">Descrizione</label>
+        <input type="text" id="descrizione" required maxlength="200" placeholder="es. Pizza">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label for="importo">Importo (€)</label>
+        <input type="number" id="importo" step="0.01" min="0.01" required placeholder="0.00">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label for="categoria">Categoria</label>
+        <select id="categoria">
+          <option value="cibo">Cibo</option>
+          <option value="trasporti">Trasporti</option>
+          <option value="casa">Casa</option>
+          <option value="svago">Svago</option>
+          <option value="altro">Altro</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label for="data">Data</label>
+        <input type="date" id="data" required>
+      </div>
+      <div class="form-group" style="justify-content:end">
+        <button type="submit" class="btn btn-primary" id="form-submit">Aggiungi</button>
+        <button type="button" class="btn btn-cancel" id="form-cancel" style="display:none">Annulla</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Filters + Table -->
+<div class="card">
+  <h2>📋 Spese</h2>
+  <div class="filter-bar">
+    <label for="filtro-categoria">Filtro categoria:</label>
+    <select id="filtro-categoria">
+      <option value="">Tutte</option>
+      <option value="cibo">Cibo</option>
+      <option value="trasporti">Trasporti</option>
+      <option value="casa">Casa</option>
+      <option value="svago">Svago</option>
+      <option value="altro">Altro</option>
+    </select>
+    <span id="spese-count" style="color:#666;font-size:.85rem"></span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Descrizione</th><th>Importo</th><th>Categoria</th><th>Data</th><th>Azioni</th></tr>
+      </thead>
+      <tbody id="expenses-tbody">
+        <tr><td colspan="6" style="text-align:center;color:#888">Caricamento…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Chart -->
+<div class="card">
+  <h2>📊 Spese per categoria</h2>
+  <div class="chart-wrap">
+    <canvas id="summary-chart" width="400" height="400"></canvas>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  Expense Tracker — Frontend
+// ═══════════════════════════════════════════════════════════
+
+const API_BASE = 'http://localhost:8000';
+let chartInstance = null;
+
+// ── DOM refs ─────────────────────────────────────────────
+const apiInput    = document.getElementById('api-key-input');
+const apiBtn      = document.getElementById('api-key-btn');
+const apiStatus   = document.getElementById('api-key-status');
+const msgBox      = document.getElementById('msg-box');
+const form        = document.getElementById('expense-form');
+const formTitle   = document.getElementById('form-title');
+const formSubmit  = document.getElementById('form-submit');
+const formCancel  = document.getElementById('form-cancel');
+const fDesc       = document.getElementById('descrizione');
+const fImporto    = document.getElementById('importo');
+const fCategoria  = document.getElementById('categoria');
+const fData       = document.getElementById('data');
+const filtroCat   = document.getElementById('filtro-categoria');
+const tbody       = document.getElementById('expenses-tbody');
+const speseCount  = document.getElementById('spese-count');
+
+// ── State ────────────────────────────────────────────────
+let editingId = null;
+
+// ── API Key management ───────────────────────────────────
+function loadApiKey() {
+  const saved = localStorage.getItem('expense_tracker_api_key');
+  if (saved) {
+    apiInput.value = saved;
+    apiStatus.textContent = '✅ Configurata';
+    apiStatus.className = 'api-ok';
+    return saved;
+  }
+  return '';
+}
+
+function saveApiKey() {
+  const key = apiInput.value.trim();
+  if (key) {
+    localStorage.setItem('expense_tracker_api_key', key);
+    apiStatus.textContent = '✅ Configurata';
+    apiStatus.className = 'api-ok';
+  } else {
+    localStorage.removeItem('expense_tracker_api_key');
+    apiStatus.textContent = '⛔ Non configurata';
+    apiStatus.className = 'api-missing';
+  }
+  return key;
+}
+
+apiBtn.addEventListener('click', () => { saveApiKey(); refreshAll(); });
+
+// ── HTTP helper ──────────────────────────────────────────
+async function api(method, path, body = null) {
+  const key = loadApiKey();
+  if (!key) {
+    showError('Configura una API Key prima di proseguire.');
+    throw new Error('API Key mancante');
+  }
+  const headers = { 'X-API-Key': key };
+  if (body) { headers['Content-Type'] = 'application/json'; }
+
+  const res = await fetch(API_BASE + path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : null,
+  });
+
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try { const j = await res.json(); if (j.detail) detail = j.detail; } catch {}
+    // Mappa codici in messaggi user-friendly
+    if (res.status === 401) detail = '⛔ API Key non valida. Controlla la chiave.';
+    if (res.status === 404) detail = '❌ Spesa non trovata (già eliminata?).';
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
+  }
+
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ── Message display ──────────────────────────────────────
+function showError(msg) {
+  msgBox.textContent = msg;
+  msgBox.className = 'msg msg-error';
+}
+
+function showSuccess(msg) {
+  msgBox.textContent = msg;
+  msgBox.className = 'msg msg-success';
+}
+
+function clearMsg() {
+  msgBox.className = 'msg';
+  msgBox.textContent = '';
+}
+
+// ── Set today's date ─────────────────────────────────────
+function setToday() {
+  if (!fData.value) {
+    fData.value = new Date().toISOString().slice(0, 10);
+  }
+}
+
+// ── Load expenses ────────────────────────────────────────
+async function loadExpenses() {
+  const cat = filtroCat.value;
+  const path = cat ? `/expenses?categoria=${encodeURIComponent(cat)}` : '/expenses';
+  const data = await api('GET', path);
+  return data;
+}
+
+async function refreshTable() {
+  try {
+    const expenses = await loadExpenses();
+    if (!expenses.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888">Nessuna spesa registrata.</td></tr>';
+      speseCount.textContent = '0 spese';
+      return;
+    }
+    tbody.innerHTML = expenses.map(e => `
+      <tr>
+        <td>${e.id}</td>
+        <td>${esc(e.descrizione)}</td>
+        <td>€${e.importo.toFixed(2)}</td>
+        <td>${esc(e.categoria)}</td>
+        <td>${e.data}</td>
+        <td class="actions">
+          <button class="btn btn-edit" onclick="editExpense(${e.id})">Modifica</button>
+          <button class="btn btn-del" onclick="deleteExpense(${e.id})">Elimina</button>
+        </td>
+      </tr>
+    `).join('');
+    speseCount.textContent = `${expenses.length} ${expenses.length === 1 ? 'spesa' : 'spese'}`;
+  } catch (err) {
+    showError(`Errore caricamento spese: ${err.message}`);
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ── Summary / Chart ──────────────────────────────────────
+async function refreshChart() {
+  try {
+    const data = await api('GET', '/expenses/summary');
+    updateChart(data);
+  } catch (err) {
+    showError(`Errore caricamento summary: ${err.message}`);
+  }
+}
+
+function updateChart(data) {
+  const ctx = document.getElementById('summary-chart').getContext('2d');
+
+  if (chartInstance) chartInstance.destroy();
+
+  const labels = Object.keys(data.categorie);
+  const values = Object.values(data.categorie);
+  const colors = ['#e53935','#1e88e5','#43a047','#fb8c00','#8e24aa'];
+  const hasData = values.some(v => v > 0);
+
+  if (!hasData) {
+    // Mostra messaggio vuoto su tela
+    chartInstance = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels: ['Nessuna spesa'], datasets: [{ data: [1], backgroundColor: ['#e0e0e0'] }] },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: {
+          legend: { display: true },
+          tooltip: { callbacks: { label: () => 'Nessuna spesa' } }
+        }
+      }
+    });
+    return;
+  }
+
+  chartInstance = new Chart(ctx, {
+    type: 'doughnut', // grafico a ciambella più moderno della torta piena
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors.slice(0, labels.length),
+        borderWidth: 2,
+        borderColor: '#fff',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const total = data.total || values.reduce((a, b) => a + b, 0);
+              const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+              return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// ── CRUD operations ──────────────────────────────────────
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearMsg();
+
+  const payload = {
+    descrizione: fDesc.value.trim(),
+    importo: parseFloat(fImporto.value),
+    categoria: fCategoria.value,
+    data: fData.value,
+  };
+
+  try {
+    if (editingId) {
+      // UPDATE
+      await api('PUT', `/expenses/${editingId}`, payload);
+      showSuccess('✅ Spesa aggiornata.');
+      editingId = null;
+      formSubmit.textContent = 'Aggiungi';
+      formTitle.textContent = '➕ Nuova spesa';
+      formCancel.style.display = 'none';
+    } else {
+      // CREATE
+      await api('POST', '/expenses', payload);
+      showSuccess('✅ Spesa aggiunta.');
+    }
+    form.reset();
+    setToday();
+    await Promise.all([refreshTable(), refreshChart()]);
+  } catch (err) {
+    showError(`Errore: ${err.message}`);
+  }
+});
+
+formCancel.addEventListener('click', () => {
+  editingId = null;
+  formSubmit.textContent = 'Aggiungi';
+  formTitle.textContent = '➕ Nuova spesa';
+  formCancel.style.display = 'none';
+  form.reset();
+  setToday();
+  clearMsg();
+});
+
+async function editExpense(id) {
+  clearMsg();
+  try {
+    const e = await api('GET', `/expenses/${id}`);
+    editingId = id;
+    fDesc.value = e.descrizione;
+    fImporto.value = e.importo;
+    fCategoria.value = e.categoria;
+    fData.value = e.data;
+    formSubmit.textContent = 'Salva modifiche';
+    formTitle.textContent = '✏️ Modifica spesa';
+    formCancel.style.display = 'inline-block';
+    // Scroll al form
+    document.getElementById('form-card').scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    showError(`Errore nel caricamento della spesa: ${err.message}`);
+  }
+}
+
+async function deleteExpense(id) {
+  if (!confirm('Eliminare questa spesa?')) return;
+  clearMsg();
+  try {
+    await api('DELETE', `/expenses/${id}`);
+    showSuccess('🗑️ Spesa eliminata.');
+    await Promise.all([refreshTable(), refreshChart()]);
+  } catch (err) {
+    showError(`Errore eliminazione: ${err.message}`);
+  }
+}
+
+// ── Filter change ───────────────────────────────────────
+filtroCat.addEventListener('change', () => {
+  refreshTable();
+});
+
+// ── Auto-refresh ─────────────────────────────────────────
+async function refreshAll() {
+  try {
+    await Promise.all([refreshTable(), refreshChart()]);
+  } catch (err) {
+    // Error already shown by individual functions
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────
+loadApiKey();
+setToday();
+refreshAll();
+</script>
+</body>
+</html>
